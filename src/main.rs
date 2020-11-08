@@ -117,10 +117,19 @@ impl RestPath<()> for Get<'_> {
 }
 
 fn put_key(client: &mut RestClient, username: &String, key: &str) {
+    println!("Enter the value for secret {:?}", key);
+    let mut secret = String::new();
+    io::stdin().read_line(&mut secret).unwrap();
+    if secret.len() <= 1 {
+        println!("Failed to read any data for secret");
+        return;
+    }
+    secret.truncate(secret.len() - 1);
+
     let data = Put {
         email: username,
         key_name: key,
-        key_value: String::from("tsur"),
+        key_value: secret,
     };
     let result = client.post((), &data);
     match result {
@@ -154,11 +163,10 @@ fn get_key(client: &mut RestClient, username: &String, key: &str) {
         email: username,
         key_name: key,
     };
-    // let res = client.post_capture((), &data).context("Failed to find secret")?;
     let result: std::result::Result<GetResult, restson::Error> = client.post_capture((), &data);
     match result {
         Ok(success) => {
-            println!("{:?}", success.key_value);
+            println!("{}", success.key_value);
         }
         Err(error) => {
             println!("Could not find secret {}\n{}", key, error);
