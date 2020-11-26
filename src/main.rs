@@ -2,17 +2,17 @@ extern crate restson;
 #[macro_use]
 extern crate serde_derive;
 
+use chrono::{DateTime, NaiveDateTime};
 use process::exit;
 use restson::{Error, RestClient, RestPath};
 use std::collections::HashMap;
 use std::io::Write;
-use std::{io, env, process};
-use chrono::{DateTime, NaiveDateTime};
+use std::{env, io, process};
 
-const CM_URL: &'static str = "CRYPTOMOVE_URL";
-const CM_USER: &'static str = "CRYPTOMOVE_USERNAME";
-const CM_PASS: &'static str = "CRYPTOMOVE_PASSWORD";
-const TIME_FMT: &'static str = "%m/%d/%y %H:%M";
+const CM_URL: &str = "CRYPTOMOVE_URL";
+const CM_USER: &str = "CRYPTOMOVE_USERNAME";
+const CM_PASS: &str = "CRYPTOMOVE_PASSWORD";
+const TIME_FMT: &str = "%m/%d/%y %H:%M";
 
 // Requesting a token is done using these
 #[derive(Serialize, Debug)]
@@ -38,7 +38,7 @@ impl RestPath<()> for Login<'_> {
 // Show secrets is done using these
 #[derive(Serialize, Debug)]
 struct Show<'a> {
-    email: &'a String,
+    email: &'a str,
 }
 
 #[derive(Debug, serde_derive::Deserialize)]
@@ -73,7 +73,7 @@ impl RestPath<()> for Show<'_> {
 // File list is done using these structures
 #[derive(Serialize, Debug)]
 struct File<'a> {
-    email: &'a String,
+    email: &'a str,
 }
 #[derive(Debug, serde_derive::Deserialize)]
 struct ShowFiles {
@@ -100,7 +100,7 @@ impl RestPath<()> for File<'_> {
 // Put secrets uses these
 #[derive(Serialize, Debug)]
 struct Put<'a> {
-    email: &'a String,
+    email: &'a str,
     key_name: &'a str,
     key_value: String,
 }
@@ -114,7 +114,7 @@ impl RestPath<()> for Put<'_> {
 // Delete secrets uses these
 #[derive(Serialize, Debug)]
 struct Delete<'a> {
-    email: &'a String,
+    email: &'a str,
     key_name: &'a str,
 }
 
@@ -127,7 +127,7 @@ impl RestPath<()> for Delete<'_> {
 // Get secrets uses these
 #[derive(Serialize, Debug)]
 struct Get<'a> {
-    email: &'a String,
+    email: &'a str,
     key_name: &'a str,
 }
 
@@ -144,7 +144,7 @@ impl RestPath<()> for Get<'_> {
     }
 }
 
-fn put_key(client: &mut RestClient, username: &String, key: &str) {
+fn put_key(client: &mut RestClient, username: &str, key: &str) {
     println!("Enter the value for secret {:?}", key);
     let mut secret = String::new();
     io::stdin().read_line(&mut secret).unwrap();
@@ -170,7 +170,7 @@ fn put_key(client: &mut RestClient, username: &String, key: &str) {
     }
 }
 
-fn delete_key(client: &mut RestClient, username: &String, key: &str) {
+fn delete_key(client: &mut RestClient, username: &str, key: &str) {
     let data = Delete {
         email: username,
         key_name: key,
@@ -186,7 +186,7 @@ fn delete_key(client: &mut RestClient, username: &String, key: &str) {
     }
 }
 
-fn get_key(client: &mut RestClient, username: &String, key: &str) {
+fn get_key(client: &mut RestClient, username: &str, key: &str) {
     let data = Get {
         email: username,
         key_name: key,
@@ -202,19 +202,22 @@ fn get_key(client: &mut RestClient, username: &String, key: &str) {
     }
 }
 
-fn show_keys(client: &mut RestClient, username: &String) {
+fn show_keys(client: &mut RestClient, username: &str) {
     let data = Show { email: username };
     let res: ShowKeys = client.post_capture((), &data).unwrap();
 
     // Default to the column header size
     let mut max = 5;
-    for (key, _) in &res.keys {
+    for key in res.keys.keys() {
         if key.len() > max {
             max = key.len();
         }
     }
 
-    println!("{0:1$} {2:>14} {3:>5}", "Name", max, "Creation Time", "Link");
+    println!(
+        "{0:1$} {2:>14} {3:>5}",
+        "Name", max, "Creation Time", "Link"
+    );
     let header_width = max + 1 + 14 + 1 + 5;
     println!("{0:->1$}", "-", header_width);
 
@@ -225,30 +228,29 @@ fn show_keys(client: &mut RestClient, username: &String) {
         let time = match DateTime::parse_from_rfc3339(&value.last_saved_time) {
             Ok(t) => t.timestamp(),
             Err(e) => {
-                println!(
-                    "Error finding time: {}", e
-                );
+                println!("Error finding time: {}", e);
                 0
             }
         };
         let sec = NaiveDateTime::from_timestamp(time, 0);
         println!(
             "{0:1$} {2:>14} {3}",
-            key, max,
+            key,
+            max,
             sec.format(TIME_FMT).to_string(),
             value.is_link,
         );
     }
 }
 
-fn show_files(client: &mut RestClient, username: &String) {
+fn show_files(client: &mut RestClient, username: &str) {
     let data = File { email: username };
     let res: ShowFiles = client.post_capture((), &data).unwrap();
 
     let all_files = res.files;
-    if all_files.len() == 0 {
+    if all_files.is_empty() {
         println!("No files found");
-        return
+        return;
     }
 
     let mut max = 5;
@@ -257,19 +259,20 @@ fn show_files(client: &mut RestClient, username: &String) {
             max = file.filename.len();
         }
     }
-    println!(
-        "{0:1$} {2:14} {3:>3} {4:>8} {5:>6} {6}",
-        "Name", max, "Creation Time", "Chk", "Size", "Stream", "V");
+    println!("{0:1$}  Creation Time Chk     Size Stream V", "Name", max);
     let header_width = max + 1 + 14 + 1 + 3 + 1 + 8 + 1 + 6 + 1 + 1;
     println!("{0:->1$}", "-", header_width);
     for file in &all_files {
         let sec = NaiveDateTime::from_timestamp(file.created_at, 0);
         println!(
             "{0:1$} {2} {3:>3} {4:>8} {5:>6} {6}",
-            file.filename, max,
+            file.filename,
+            max,
             sec.format(TIME_FMT).to_string(),
             file.num_chunks,
-            file.size, file.stream_available, file.version,
+            file.size,
+            file.stream_available,
+            file.version,
         );
     }
 }
@@ -300,19 +303,18 @@ fn read_env(env_name: &str) -> String {
         }
     };
 
-    let env_val = match env_val.clone().into_string() {
+    match env_val.clone().into_string() {
         Ok(val) => val,
         Err(e) => {
             println!("{:?} is not valid string. {:?}", env_val, e);
             exit(1);
         }
-    };
-    env_val
+    }
 }
 
 // from: https://stackoverflow.com/questions/38447780
 fn crop_letters(s: &str, pos: usize) -> &str {
-    match s.char_indices().skip(pos).next() {
+    match s.char_indices().nth(pos) {
         Some((pos, _)) => &s[pos..],
         None => "",
     }
@@ -331,7 +333,7 @@ fn show_help() {
     println!("-------------------------------------------------------------------");
 }
 
-fn cli(client: &mut RestClient, username: &String) {
+fn cli(client: &mut RestClient, username: &str) {
     show_help();
     loop {
         print!("cmcli> ");
@@ -363,14 +365,14 @@ fn cli(client: &mut RestClient, username: &String) {
                 show_files(client, &username);
             }
             "get" => {
-                if args.len() == 0 {
+                if args.is_empty() {
                     println!("Missing secret name to get");
                     continue;
                 };
                 get_key(client, &username, &args);
             }
             "put" => {
-                if args.len() == 0 {
+                if args.is_empty() {
                     println!("Missing secret name to put");
                     continue;
                 };
@@ -378,7 +380,7 @@ fn cli(client: &mut RestClient, username: &String) {
                 put_key(client, &username, &args);
             }
             "delete" => {
-                if args.len() == 0 {
+                if args.is_empty() {
                     println!("Missing secret name to delete");
                     continue;
                 };
