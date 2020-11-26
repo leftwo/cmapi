@@ -1,19 +1,20 @@
 extern crate restson;
 #[macro_use]
 extern crate serde_derive;
+
 use process::exit;
 use restson::{Error, RestClient, RestPath};
 use std::collections::HashMap;
-use std::io;
 use std::io::Write;
-use std::{env, process};
+use std::{io, env, process};
+use chrono::{DateTime, NaiveDateTime};
 
 const CM_URL: &'static str = "CRYPTOMOVE_URL";
 const CM_USER: &'static str = "CRYPTOMOVE_USERNAME";
 const CM_PASS: &'static str = "CRYPTOMOVE_PASSWORD";
+const TIME_FMT: &'static str = "%m/%d/%y %H:%M";
 
 // Requesting a token is done using these
-
 #[derive(Serialize, Debug)]
 struct Login<'a> {
     email: &'a str,
@@ -66,6 +67,33 @@ struct KeyMetadata {
 impl RestPath<()> for Show<'_> {
     fn get_path(_: ()) -> Result<String, Error> {
         Ok(String::from("api/v1/user/secret/list_no_dup"))
+    }
+}
+
+// File list is done using these structures
+#[derive(Serialize, Debug)]
+struct File<'a> {
+    email: &'a String,
+}
+#[derive(Debug, serde_derive::Deserialize)]
+struct ShowFiles {
+    // files returns an array of FileInfo structs
+    files: Vec<FileInfo>,
+    status: String,
+    user_id: String,
+}
+#[derive(Debug, serde_derive::Deserialize)]
+struct FileInfo {
+    created_at: i64,
+    filename: String,
+    num_chunks: u32,
+    size: String,
+    stream_available: bool,
+    version: u32,
+}
+impl RestPath<()> for File<'_> {
+    fn get_path(_: ()) -> Result<String, Error> {
+        Ok(String::from("api/v1/user/list_file"))
     }
 }
 
@@ -186,14 +214,62 @@ fn show_keys(client: &mut RestClient, username: &String) {
         }
     }
 
-    println!("{0:1$} {2:25} {3}", "Name", max, "Date Created", "Link");
-    let header_width = max + 1 + 25 + 1 + 5;
+    println!("{0:1$} {2:>14} {3:>5}", "Name", max, "Creation Time", "Link");
+    let header_width = max + 1 + 14 + 1 + 5;
     println!("{0:->1$}", "-", header_width);
 
+    // XXX Added time here, we will come back to it and re-work this.
+    // I think I want to make a big list of all keys, links, shared, etc
+    // put files on that as well.
     for (key, value) in res.keys {
+        let time = match DateTime::parse_from_rfc3339(&value.last_saved_time) {
+            Ok(t) => t.timestamp(),
+            Err(e) => {
+                println!(
+                    "Error finding time: {}", e
+                );
+                0
+            }
+        };
+        let sec = NaiveDateTime::from_timestamp(time, 0);
         println!(
-            "{0:1$} {2:5} {3}",
-            key, max, value.last_saved_time, value.is_link
+            "{0:1$} {2:>14} {3}",
+            key, max,
+            sec.format(TIME_FMT).to_string(),
+            value.is_link,
+        );
+    }
+}
+
+fn show_files(client: &mut RestClient, username: &String) {
+    let data = File { email: username };
+    let res: ShowFiles = client.post_capture((), &data).unwrap();
+
+    let all_files = res.files;
+    if all_files.len() == 0 {
+        println!("No files found");
+        return
+    }
+
+    let mut max = 5;
+    for file in &all_files {
+        if file.filename.len() > max {
+            max = file.filename.len();
+        }
+    }
+    println!(
+        "{0:1$} {2:14} {3:>3} {4:>8} {5:>6} {6}",
+        "Name", max, "Creation Time", "Chk", "Size", "Stream", "V");
+    let header_width = max + 1 + 14 + 1 + 3 + 1 + 8 + 1 + 6 + 1 + 1;
+    println!("{0:->1$}", "-", header_width);
+    for file in &all_files {
+        let sec = NaiveDateTime::from_timestamp(file.created_at, 0);
+        println!(
+            "{0:1$} {2} {3:>3} {4:>8} {5:>6} {6}",
+            file.filename, max,
+            sec.format(TIME_FMT).to_string(),
+            file.num_chunks,
+            file.size, file.stream_available, file.version,
         );
     }
 }
@@ -246,11 +322,13 @@ fn show_help() {
     println!("Valid commands are:");
     println!("-------------------------------------------------------------------");
     println!("show                 | Show all secrets");
+    println!("file                 | Show file secrets");
     println!("get <SECRET_NAME>    | Get the value of the secret name provided");
     println!("put <SECRET_NAME>    | Put a secret at the name provided,");
     println!("                     | you will be asked for the secrets contents");
     println!("delete <SECRET_NAME> | Delete the value of the secret name provided");
     println!("q | quit             | Quit the program");
+    println!("-------------------------------------------------------------------");
 }
 
 fn cli(client: &mut RestClient, username: &String) {
@@ -280,6 +358,9 @@ fn cli(client: &mut RestClient, username: &String) {
         match cmd {
             "show" => {
                 show_keys(client, &username);
+            }
+            "file" => {
+                show_files(client, &username);
             }
             "get" => {
                 if args.len() == 0 {
