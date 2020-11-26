@@ -14,7 +14,7 @@ const CM_USER: &str = "CRYPTOMOVE_USERNAME";
 const CM_PASS: &str = "CRYPTOMOVE_PASSWORD";
 const TIME_FMT: &str = "%m/%d/%y %H:%M";
 
-// Requesting a token is done using these
+// Structures and methods for Tokens
 #[derive(Serialize, Debug)]
 struct Login<'a> {
     email: &'a str,
@@ -35,7 +35,24 @@ impl RestPath<()> for Login<'_> {
     }
 }
 
-// Show secrets is done using these
+fn get_token(url: &str, email: &str, password: &str) -> Result<RestClient, Error> {
+    let mut client = RestClient::new(url)?;
+
+    let data = Login { email, password };
+
+    let res: LoginToken = client.post_capture((), &data).expect("failed to get token");
+
+    client
+        .set_header("authorization", &res.access_token)
+        .expect("failed to set headers");
+    client
+        .set_header("content-type", "application/json")
+        .expect("failed to set headers");
+
+    Ok(client)
+}
+
+// Structures and methods for Showing secrets
 #[derive(Serialize, Debug)]
 struct Show<'a> {
     email: &'a str,
@@ -67,138 +84,6 @@ struct KeyMetadata {
 impl RestPath<()> for Show<'_> {
     fn get_path(_: ()) -> Result<String, Error> {
         Ok(String::from("api/v1/user/secret/list_no_dup"))
-    }
-}
-
-// File list is done using these structures
-#[derive(Serialize, Debug)]
-struct File<'a> {
-    email: &'a str,
-}
-#[derive(Debug, serde_derive::Deserialize)]
-struct ShowFiles {
-    // files returns an array of FileInfo structs
-    files: Vec<FileInfo>,
-    status: String,
-    user_id: String,
-}
-#[derive(Debug, serde_derive::Deserialize)]
-struct FileInfo {
-    created_at: i64,
-    filename: String,
-    num_chunks: u32,
-    size: String,
-    stream_available: bool,
-    version: u32,
-}
-impl RestPath<()> for File<'_> {
-    fn get_path(_: ()) -> Result<String, Error> {
-        Ok(String::from("api/v1/user/list_file"))
-    }
-}
-
-// Put secrets uses these
-#[derive(Serialize, Debug)]
-struct Put<'a> {
-    email: &'a str,
-    key_name: &'a str,
-    key_value: String,
-}
-
-impl RestPath<()> for Put<'_> {
-    fn get_path(_: ()) -> Result<String, Error> {
-        Ok(String::from("api/v1/user/secret/protect"))
-    }
-}
-
-// Delete secrets uses these
-#[derive(Serialize, Debug)]
-struct Delete<'a> {
-    email: &'a str,
-    key_name: &'a str,
-}
-
-impl RestPath<()> for Delete<'_> {
-    fn get_path(_: ()) -> Result<String, Error> {
-        Ok(String::from("api/v1/user/secret/delete"))
-    }
-}
-
-// Get secrets uses these
-#[derive(Serialize, Debug)]
-struct Get<'a> {
-    email: &'a str,
-    key_name: &'a str,
-}
-
-#[derive(Debug, serde_derive::Deserialize)]
-struct GetResult {
-    key_name: String,
-    key_value: String,
-    status: String,
-}
-
-impl RestPath<()> for Get<'_> {
-    fn get_path(_: ()) -> Result<String, Error> {
-        Ok(String::from("api/v1/user/secret/expose"))
-    }
-}
-
-fn put_key(client: &mut RestClient, username: &str, key: &str) {
-    println!("Enter the value for secret {:?}", key);
-    let mut secret = String::new();
-    io::stdin().read_line(&mut secret).unwrap();
-    if secret.len() <= 1 {
-        println!("Failed to read any data for secret");
-        return;
-    }
-    secret.truncate(secret.len() - 1);
-
-    let data = Put {
-        email: username,
-        key_name: key,
-        key_value: secret,
-    };
-    let result = client.post((), &data);
-    match result {
-        Ok(_) => {
-            println!("Put secret at name {:?}", key);
-        }
-        Err(error) => {
-            println!("Error with put for secret {}\n{}", key, error);
-        }
-    }
-}
-
-fn delete_key(client: &mut RestClient, username: &str, key: &str) {
-    let data = Delete {
-        email: username,
-        key_name: key,
-    };
-    let result = client.post((), &data);
-    match result {
-        Ok(_) => {
-            println!("Deleted {:?}", key);
-        }
-        Err(error) => {
-            println!("Error deleting secret {}\n{}", key, error);
-        }
-    }
-}
-
-fn get_key(client: &mut RestClient, username: &str, key: &str) {
-    let data = Get {
-        email: username,
-        key_name: key,
-    };
-    let result: std::result::Result<GetResult, restson::Error> = client.post_capture((), &data);
-    match result {
-        Ok(success) => {
-            println!("{}", success.key_value);
-        }
-        Err(error) => {
-            println!("Could not find secret {}\n{}", key, error);
-        }
     }
 }
 
@@ -243,6 +128,33 @@ fn show_keys(client: &mut RestClient, username: &str) {
     }
 }
 
+// Structures and methods for listing files
+#[derive(Serialize, Debug)]
+struct File<'a> {
+    email: &'a str,
+}
+#[derive(Debug, serde_derive::Deserialize)]
+struct ShowFiles {
+    // files returns an array of FileInfo structs
+    files: Vec<FileInfo>,
+    status: String,
+    user_id: String,
+}
+#[derive(Debug, serde_derive::Deserialize)]
+struct FileInfo {
+    created_at: i64,
+    filename: String,
+    num_chunks: u32,
+    size: String,
+    stream_available: bool,
+    version: u32,
+}
+impl RestPath<()> for File<'_> {
+    fn get_path(_: ()) -> Result<String, Error> {
+        Ok(String::from("api/v1/user/list_file"))
+    }
+}
+
 fn show_files(client: &mut RestClient, username: &str) {
     let data = File { email: username };
     let res: ShowFiles = client.post_capture((), &data).unwrap();
@@ -277,23 +189,113 @@ fn show_files(client: &mut RestClient, username: &str) {
     }
 }
 
-fn get_token(url: &str, email: &str, password: &str) -> Result<RestClient, Error> {
-    let mut client = RestClient::new(url)?;
-
-    let data = Login { email, password };
-
-    let res: LoginToken = client.post_capture((), &data).expect("failed to get token");
-
-    client
-        .set_header("authorization", &res.access_token)
-        .expect("failed to set headers");
-    client
-        .set_header("content-type", "application/json")
-        .expect("failed to set headers");
-
-    Ok(client)
+// Structures and methods for putting secrets
+#[derive(Serialize, Debug)]
+struct Put<'a> {
+    email: &'a str,
+    key_name: &'a str,
+    key_value: String,
 }
 
+impl RestPath<()> for Put<'_> {
+    fn get_path(_: ()) -> Result<String, Error> {
+        Ok(String::from("api/v1/user/secret/protect"))
+    }
+}
+
+fn put_key(client: &mut RestClient, username: &str, key: &str) {
+    println!("Enter the value for secret {:?}", key);
+    let mut secret = String::new();
+    io::stdin().read_line(&mut secret).unwrap();
+    if secret.len() <= 1 {
+        println!("Failed to read any data for secret");
+        return;
+    }
+    secret.truncate(secret.len() - 1);
+
+    let data = Put {
+        email: username,
+        key_name: key,
+        key_value: secret,
+    };
+    let result = client.post((), &data);
+    match result {
+        Ok(_) => {
+            println!("Put secret at name {:?}", key);
+        }
+        Err(error) => {
+            println!("Error with put for secret {}\n{}", key, error);
+        }
+    }
+}
+
+// Structures and methods for deleting secrets
+#[derive(Serialize, Debug)]
+struct Delete<'a> {
+    email: &'a str,
+    key_name: &'a str,
+}
+
+impl RestPath<()> for Delete<'_> {
+    fn get_path(_: ()) -> Result<String, Error> {
+        Ok(String::from("api/v1/user/secret/delete"))
+    }
+}
+
+fn delete_key(client: &mut RestClient, username: &str, key: &str) {
+    let data = Delete {
+        email: username,
+        key_name: key,
+    };
+    let result = client.post((), &data);
+    match result {
+        Ok(_) => {
+            println!("Deleted {:?}", key);
+        }
+        Err(error) => {
+            println!("Error deleting secret {}\n{}", key, error);
+        }
+    }
+}
+
+// Structures and methods for getting keys
+#[derive(Serialize, Debug)]
+struct Get<'a> {
+    email: &'a str,
+    key_name: &'a str,
+}
+
+#[derive(Debug, serde_derive::Deserialize)]
+struct GetResult {
+    key_name: String,
+    key_value: String,
+    status: String,
+}
+
+impl RestPath<()> for Get<'_> {
+    fn get_path(_: ()) -> Result<String, Error> {
+        Ok(String::from("api/v1/user/secret/expose"))
+    }
+}
+
+fn get_key(client: &mut RestClient, username: &str, key: &str) {
+    let data = Get {
+        email: username,
+        key_name: key,
+    };
+    let result: std::result::Result<GetResult, restson::Error> = client.post_capture((), &data);
+    match result {
+        Ok(success) => {
+            println!("{}", success.key_value);
+        }
+        Err(error) => {
+            println!("Could not find secret {}\n{}", key, error);
+        }
+    }
+}
+
+// Check the env variables for what we need to connect to
+// the REST API server.
 fn read_env(env_name: &str) -> String {
     let env_val = match env::var_os(env_name) {
         Some(val) => val,
@@ -312,7 +314,8 @@ fn read_env(env_name: &str) -> String {
     }
 }
 
-// from: https://stackoverflow.com/questions/38447780
+// from: https://stackoverflow.com/questions/38447780,
+// updated to use nth().
 fn crop_letters(s: &str, pos: usize) -> &str {
     match s.char_indices().nth(pos) {
         Some((pos, _)) => &s[pos..],
@@ -354,6 +357,9 @@ fn cli(client: &mut RestClient, username: &str) {
         // First comes the command, if there is anythign else, it's the
         // name of a secret to get, put, or delete.  We want whatever comes
         // after the command as a whole string including any spaces.
+        // Though, I'm pretty sure I still need to deal with leading
+        // spaces.  Still need to figure out how to allow a leading space
+        // in a secret name.
         let cmdl = cmd.len();
         let args = crop_letters(&line, cmdl).trim();
 
