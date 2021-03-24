@@ -1,2 +1,4 @@
 /target
+src/cmapi.code-workspace
 .DS_store
+.vscode/
